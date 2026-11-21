@@ -11,3 +11,23 @@ function isPlaceholderEnvValue(value) {
   const trimmed = value.trim();
   return !trimmed || /^MY_[A-Z0-9_]+$/.test(trimmed);
 }
+
+
+
+for (const envPath of [
+  path.resolve(BACKEND_DIR, '../.env.local'),
+  path.resolve(BACKEND_DIR, '../.env'),
+  path.resolve(BACKEND_DIR, '.env'),
+]) {
+  if (fs.existsSync(envPath)) {
+    const parsed = dotenv.parse(fs.readFileSync(envPath));
+    for (const [key, value] of Object.entries(parsed)) {
+      const current = process.env[key];
+      if (current === undefined || isPlaceholderEnvValue(current)) {
+        if (!isPlaceholderEnvValue(value) || current === undefined) {
+          process.env[key] = value;
+        }
+      }
+    }
+  }
+}
