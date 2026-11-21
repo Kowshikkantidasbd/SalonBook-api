@@ -384,3 +384,95 @@ export function filterAndSortServices(services, options = {}) {
     return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
   });
 }
+export function hasBookingConflict(appointments, params) {
+  const activeOnDateSlot = appointments.filter(
+    (apt) =>
+      apt.status !== 'cancelled' &&
+      apt.appointmentDate === params.appointmentDate &&
+      apt.timeSlot === params.timeSlot
+  );
+
+  const sameServiceConflict = activeOnDateSlot.some((apt) => apt.serviceId === params.serviceId);
+  if (sameServiceConflict) {
+    return {
+      conflict: true,
+      reason: 'This time slot is already booked for this service. Please choose another slot.',
+    };
+  }
+
+  const sameCustomerConflict = activeOnDateSlot.some((apt) => apt.customerId === params.customerId);
+  if (sameCustomerConflict) {
+    return {
+      conflict: true,
+      reason: 'You already have an active appointment request for this date and time slot.',
+    };
+  }
+
+  return { conflict: false };
+}
+
+// 9. Role-based state transition rules for cancelling, confirming, and paying appointments
+export function canCustomerCancelAppointment(appointment, customerId) {
+  return appointment.customerId === customerId && appointment.status === 'pending';
+}
+
+export function canCustomerPayAppointment(appointment, customerId) {
+  return (
+    appointment.customerId === customerId &&
+    appointment.status === 'confirmed' &&
+    appointment.paymentStatus === 'unpaid'
+  );
+}
+
+export function canAdminConfirmAppointment(appointment) {
+  return appointment.status === 'pending';
+}
+
+export function canAdminCancelAppointment(appointment) {
+  return appointment.status === 'pending' || appointment.status === 'confirmed';
+}
+
+export function validateAppointmentDate(appointmentDate, referenceDateStr) {
+  if (
+    !appointmentDate ||
+    typeof appointmentDate !== 'string' ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(appointmentDate)
+  ) {
+    return { valid: false, message: 'Please provide a valid date in YYYY-MM-DD format.' };
+  }
+  const [y, m, d] = appointmentDate.split('-').map(Number);
+  const parsed = new Date(Date.UTC(y, m - 1, d));
+  if (
+    Number.isNaN(parsed.getTime()) ||
+    parsed.getUTCFullYear() !== y ||
+    parsed.getUTCMonth() !== m - 1 ||
+    parsed.getUTCDate() !== d
+  ) {
+    return { valid: false, message: 'Please provide a valid calendar date.' };
+  }
+  const todayStr = referenceDateStr || new Date().toISOString().slice(0, 10);
+  if (appointmentDate < todayStr) {
+    return {
+      valid: false,
+      message: 'Past dates cannot be booked. Please choose today or a future date.',
+    };
+  }
+  return { valid: true };
+}
+
+function buildServiceFallback(apt, serviceMap) {
+  const live = serviceMap.get(apt.serviceId);
+  if (live) return live;
+  if (!apt.serviceName) return null;
+  return {
+    id: apt.serviceId,
+    serviceName: apt.serviceName,
+    image: apt.serviceImage || '',
+    price: apt.servicePrice,
+    duration: 60,
+    category: 'Haircut & Styling',
+    description: '',
+    status: 'inactive',
+    createdAt: apt.createdAt,
+  };
+}
