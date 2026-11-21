@@ -310,3 +310,77 @@ export function sanitizeUser(user) {
   const { passwordHash: _ignored, ...rest } = user;
   return rest;
 }
+
+export function isSafeImageUrl(url) {
+  if (typeof url !== 'string') return false;
+  const trimmed = url.trim();
+  if (!trimmed) return false;
+  if (trimmed.startsWith('/') && !trimmed.startsWith('//')) return true;
+  if (/^data:image\/(jpeg|jpg|png|webp|gif);base64,/i.test(trimmed)) return true;
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:';
+  } catch {
+    return false;
+  }
+}
+
+export function validatePassword(password) {
+  if (typeof password !== 'string' || password.length < 6) {
+    return { valid: false, message: 'Password must be at least 6 characters long.' };
+  }
+  if (!/[A-Z]/.test(password)) {
+    return { valid: false, message: 'Password must contain at least one uppercase letter.' };
+  }
+  if (!/[a-z]/.test(password)) {
+    return { valid: false, message: 'Password must contain at least one lowercase letter.' };
+  }
+  return { valid: true };
+}
+
+export function validateServiceInput(input) {
+  if (!input || typeof input.serviceName !== 'string' || !input.serviceName.trim()) {
+    return { valid: false, message: 'Service name is required.' };
+  }
+  if (typeof input.category !== 'string' || !SALON_CATEGORIES.includes(input.category)) {
+    return { valid: false, message: 'Please select a valid service category.' };
+  }
+  const priceNum = Number(input.price);
+  if (!Number.isFinite(priceNum) || priceNum <= 0) {
+    return { valid: false, message: 'Price must be a positive number.' };
+  }
+  const durationNum = Number(input.duration);
+  if (!Number.isFinite(durationNum) || durationNum <= 0) {
+    return { valid: false, message: 'Estimated duration must be a positive number.' };
+  }
+  if (typeof input.image !== 'string' || !input.image.trim()) {
+    return { valid: false, message: 'Service image upload is required.' };
+  }
+  if (!isSafeImageUrl(input.image)) {
+    return { valid: false, message: 'Please provide a valid image URL or uploaded image.' };
+  }
+  return { valid: true };
+}
+
+export function filterAndSortServices(services, options = {}) {
+  const { search = '', category = 'All', sort = 'newest', includeInactive = false } = options;
+  const normalizedSearch = typeof search === 'string' ? search.trim().toLowerCase() : '';
+
+  const filtered = services.filter((svc) => {
+    if (!includeInactive && svc.status !== 'active') return false;
+    if (category && category !== 'All' && svc.category !== category) return false;
+    if (normalizedSearch) {
+      const haystack = `${svc.serviceName || ''} ${svc.category || ''} ${svc.description || ''}`.toLowerCase();
+      if (!haystack.includes(normalizedSearch)) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  return [...filtered].sort((a, b) => {
+    if (sort === 'price_asc') return a.price - b.price;
+    if (sort === 'price_desc') return b.price - a.price;
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  });
+}
