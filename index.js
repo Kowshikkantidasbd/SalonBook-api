@@ -47,3 +47,5 @@ export const UPLOADS_DIR = isServerless
 export function getPort() {
   return Number(process.env.PORT) || 5000;
 }
+
+let warnedMissingJwtSecret = false;
