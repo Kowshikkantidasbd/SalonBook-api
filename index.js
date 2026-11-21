@@ -1,8 +1,18 @@
 
+import { spawn } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-
+import zlib from 'node:zlib';
+import bcrypt from 'bcryptjs';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import express from 'express';
+import jwt from 'jsonwebtoken';
+import mongoose, { Schema } from 'mongoose';
+import multer from 'multer';
+import Stripe from 'stripe';
 
 export const BACKEND_DIR = path.dirname(fileURLToPath(import.meta.url));
 
@@ -11,7 +21,6 @@ function isPlaceholderEnvValue(value) {
   const trimmed = value.trim();
   return !trimmed || /^MY_[A-Z0-9_]+$/.test(trimmed);
 }
-
 
 
 for (const envPath of [
@@ -49,6 +58,7 @@ export function getPort() {
 }
 
 let warnedMissingJwtSecret = false;
+
 
 export function getJwtSecret() {
   const configured = process.env.JWT_SECRET?.trim() || '';
@@ -150,6 +160,8 @@ function toHttpsOrigin(hostOrUrl) {
   }
   return `https://${trimmed}`;
 }
+
+
 export function getAllowedCorsOrigins() {
   const raw = [
     process.env.FRONTEND_URL,
@@ -285,6 +297,7 @@ export function shouldSeedDemoData() {
   return process.env.NODE_ENV !== 'production';
 }
 
+
 export const SALON_CATEGORIES = [
   'Haircut & Styling',
   'Hair Coloring',
@@ -310,6 +323,7 @@ export function sanitizeUser(user) {
   const { passwordHash: _ignored, ...rest } = user;
   return rest;
 }
+
 
 export function isSafeImageUrl(url) {
   if (typeof url !== 'string') return false;
@@ -384,6 +398,8 @@ export function filterAndSortServices(services, options = {}) {
     return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
   });
 }
+
+
 export function hasBookingConflict(appointments, params) {
   const activeOnDateSlot = appointments.filter(
     (apt) =>
@@ -411,7 +427,7 @@ export function hasBookingConflict(appointments, params) {
   return { conflict: false };
 }
 
-// 9. Role-based state transition rules for cancelling, confirming, and paying appointments
+
 export function canCustomerCancelAppointment(appointment, customerId) {
   return appointment.customerId === customerId && appointment.status === 'pending';
 }
@@ -476,6 +492,8 @@ function buildServiceFallback(apt, serviceMap) {
     createdAt: apt.createdAt,
   };
 }
+
+
 const UserSchema = new Schema(
   {
     id: { type: String, required: true, unique: true, index: true },
@@ -581,6 +599,8 @@ const TransactionModel =
   mongoose.models.Transaction || mongoose.model('Transaction', TransactionSchema);
 const CheckoutSessionModel =
   mongoose.models.CheckoutSession || mongoose.model('CheckoutSession', CheckoutSessionSchema);
+
+
 export function createSeedData(options = {}) {
   const demoAllowed =
     typeof options.includeDemo === 'boolean' ? options.includeDemo : shouldSeedDemoData();
