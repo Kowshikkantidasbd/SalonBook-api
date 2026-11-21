@@ -476,3 +476,108 @@ function buildServiceFallback(apt, serviceMap) {
     createdAt: apt.createdAt,
   };
 }
+const UserSchema = new Schema(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    name: { type: String, required: true, trim: true },
+    email: { type: String, required: true, unique: true, lowercase: true, trim: true, index: true },
+    passwordHash: { type: String, required: true },
+    image: { type: String, default: '/images/service_facial_skincare_1795006415243.jpg' },
+    phone: { type: String, default: '' },
+    role: { type: String, enum: ['customer', 'admin'], default: 'customer', index: true },
+    isBlocked: { type: Boolean, default: false },
+    authProvider: {
+      type: String,
+      enum: ['credentials', 'google'],
+      default: 'credentials',
+    },
+    createdAt: { type: String, default: () => new Date().toISOString() },
+  },
+  { versionKey: false }
+);
+
+const ServiceSchema = new Schema(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    serviceName: { type: String, required: true, trim: true },
+    category: { type: String, enum: [...SALON_CATEGORIES], required: true, index: true },
+    description: { type: String, default: '', trim: true },
+    price: { type: Number, required: true, min: 1 },
+    duration: { type: Number, required: true, min: 5 },
+    image: { type: String, required: true },
+    status: { type: String, enum: ['active', 'inactive'], default: 'active', index: true },
+    createdAt: { type: String, default: () => new Date().toISOString() },
+  },
+  { versionKey: false }
+);
+ServiceSchema.index({ status: 1, createdAt: -1 });
+
+const AppointmentSchema = new Schema(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    serviceId: { type: String, required: true, index: true },
+    serviceName: { type: String, default: '' },
+    serviceImage: { type: String, default: '' },
+    customerId: { type: String, required: true, index: true },
+    appointmentDate: { type: String, required: true, index: true },
+    timeSlot: { type: String, required: true },
+    message: { type: String, default: '' },
+    servicePrice: { type: Number, required: true },
+    paymentStatus: { type: String, enum: ['unpaid', 'paid'], default: 'unpaid' },
+    status: {
+      type: String,
+      enum: ['pending', 'confirmed', 'cancelled'],
+      default: 'pending',
+      index: true,
+    },
+    stripeSessionId: { type: String },
+    createdAt: { type: String, default: () => new Date().toISOString() },
+  },
+  { versionKey: false }
+);
+AppointmentSchema.index({ appointmentDate: 1, status: 1 });
+AppointmentSchema.index({ customerId: 1, createdAt: -1 });
+
+const TransactionSchema = new Schema(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    appointmentId: { type: String, required: true, index: true },
+    customerId: { type: String, required: true, index: true },
+    amount: { type: Number, required: true },
+    currency: { type: String, default: 'usd' },
+    stripeSessionId: { type: String, required: true, index: true },
+    status: { type: String, enum: ['paid', 'failed'], required: true },
+    createdAt: { type: String, default: () => new Date().toISOString() },
+  },
+  { versionKey: false }
+);
+TransactionSchema.index({ status: 1, createdAt: -1 });
+
+const CheckoutSessionSchema = new Schema(
+  {
+    sessionId: { type: String, required: true, unique: true, index: true },
+    appointmentId: { type: String, required: true, index: true },
+    customerId: { type: String, required: true, index: true },
+    serviceName: { type: String, required: true },
+    amount: { type: Number, required: true },
+    currency: { type: String, default: 'usd' },
+    mode: { type: String, enum: ['stripe', 'test_simulator'], default: 'test_simulator' },
+    status: {
+      type: String,
+      enum: ['pending', 'completed', 'failed', 'expired'],
+      default: 'pending',
+    },
+    expiresAt: { type: String, required: true },
+    createdAt: { type: String, default: () => new Date().toISOString() },
+  },
+  { versionKey: false }
+);
+
+const UserModel = mongoose.models.User || mongoose.model('User', UserSchema);
+const ServiceModel = mongoose.models.Service || mongoose.model('Service', ServiceSchema);
+const AppointmentModel =
+  mongoose.models.Appointment || mongoose.model('Appointment', AppointmentSchema);
+const TransactionModel =
+  mongoose.models.Transaction || mongoose.model('Transaction', TransactionSchema);
+const CheckoutSessionModel =
+  mongoose.models.CheckoutSession || mongoose.model('CheckoutSession', CheckoutSessionSchema);
