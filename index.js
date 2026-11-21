@@ -581,3 +581,181 @@ const TransactionModel =
   mongoose.models.Transaction || mongoose.model('Transaction', TransactionSchema);
 const CheckoutSessionModel =
   mongoose.models.CheckoutSession || mongoose.model('CheckoutSession', CheckoutSessionSchema);
+export function createSeedData(options = {}) {
+  const demoAllowed =
+    typeof options.includeDemo === 'boolean' ? options.includeDemo : shouldSeedDemoData();
+  const envAdminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase() || '';
+  const envAdminPassword = process.env.ADMIN_PASSWORD?.trim() || '';
+
+  const users = [];
+  if (envAdminEmail && envAdminPassword) {
+    users.push({
+      id: 'usr-admin-1',
+      name: process.env.ADMIN_NAME?.trim() || 'Camille Laurent',
+      email: envAdminEmail,
+      passwordHash: bcrypt.hashSync(envAdminPassword, 10),
+      image: '/images/stylist_camille_director_1795011102351.jpg',
+      phone: '+1 (415) 890-2410',
+      role: 'admin',
+      isBlocked: false,
+      authProvider: 'credentials',
+      createdAt: '2026-09-01T09:00:00.000Z',
+    });
+  } else if (demoAllowed) {
+    users.push({
+      id: 'usr-admin-1',
+      name: 'Camille Laurent',
+      email: 'admin@salonbook.com',
+      passwordHash: bcrypt.hashSync('Admin123', 10),
+      image: '/images/stylist_camille_director_1795011102351.jpg',
+      phone: '+1 (415) 890-2410',
+      role: 'admin',
+      isBlocked: false,
+      authProvider: 'credentials',
+      createdAt: '2026-09-01T09:00:00.000Z',
+    });
+  }
+
+  const envCustomerEmail = (
+    process.env.CUSTOMER_EMAIL ||
+    process.env.CUSTOME_EMAIL ||
+    (demoAllowed ? 'customer@salonbook.com' : '')
+  ).trim().toLowerCase();
+  const envCustomerPassword = (
+    process.env.CUSTOMER_PASSWORD ||
+    process.env.CUSTOME_PASSWORD ||
+    (demoAllowed ? 'Customer123' : '')
+  ).trim();
+
+  if (envCustomerEmail && envCustomerPassword) {
+    users.push({
+      id: 'usr-cust-1',
+      name: 'Maya Lin',
+      email: envCustomerEmail,
+      passwordHash: bcrypt.hashSync(envCustomerPassword, 10),
+      image: '/images/service_hair_coloring_1795006415664.jpg',
+      phone: '+1 (415) 555-0199',
+      role: 'customer',
+      isBlocked: false,
+      authProvider: 'credentials',
+      createdAt: '2026-09-02T10:00:00.000Z',
+    });
+  }
+
+  if (!demoAllowed) {
+    return { users, services: [], appointments: [], transactions: [], checkoutSessions: [] };
+  }
+
+  const services = [
+    {
+      id: 'svc-1',
+      serviceName: 'Architectural Precision Haircut & Blowout',
+      category: 'Haircut & Styling',
+      description:
+        'A bespoke consultation followed by a tailored wet-and-dry precision cut, botanical scalp cleanse, and signature luminous round-brush blowout.',
+      price: 110,
+      duration: 60,
+      image: '/images/service_haircut_styling_1795006414399.jpg',
+      status: 'active',
+      createdAt: '2026-10-01T09:00:00.000Z',
+    },
+    {
+      id: 'svc-2',
+      serviceName: 'Lived-In Dimensional Balayage',
+      category: 'Hair Coloring',
+      description:
+        'Hand-painted sunlit highlights customized to your skin tone, paired with a bond-building gloss toner for seamless grow-out and radiant shine.',
+      price: 240,
+      duration: 150,
+      image: '/images/service_hair_coloring_1795006415664.jpg',
+      status: 'active',
+      createdAt: '2026-10-02T09:00:00.000Z',
+    },
+    {
+      id: 'svc-3',
+      serviceName: 'Botanical Keratin Renewal Ritual',
+      category: 'Hair Treatment',
+      description:
+        'Deep restorative amino-acid and plant-protein infusion sealed with gentle thermal mist to smooth frizz and restore elasticity for up to 12 weeks.',
+      price: 175,
+      duration: 90,
+      image: '/images/service_hair_treatment_ritual_1795011102653.jpg',
+      status: 'active',
+      createdAt: '2026-10-03T09:00:00.000Z',
+    },
+    {
+      id: 'svc-4',
+      serviceName: 'Hydra-Botanical Cellular Facial',
+      category: 'Facial & Skincare',
+      description:
+        'Multi-step enzymatic exfoliation, ultrasonic pore purification, lymphatic facial sculpting massage, and cold-pressed botanical serum infusion.',
+      price: 155,
+      duration: 75,
+      image: '/images/service_facial_skincare_1795006415243.jpg',
+      status: 'active',
+      createdAt: '2026-10-04T09:00:00.000Z',
+    },
+    {
+      id: 'svc-5',
+      serviceName: 'Editorial Soft-Glam Makeup Session',
+      category: 'Makeup',
+      description:
+        'Skin-first radiant complexion prep and tailored editorial eye and lip artistry designed for weddings, galas, and studio photography.',
+      price: 135,
+      duration: 60,
+      image: '/images/service_makeup_artistry_1795006416654.jpg',
+      status: 'active',
+      createdAt: '2026-10-05T09:00:00.000Z',
+    },
+    {
+      id: 'svc-6',
+      serviceName: 'Japanese Gel Manicure & Nail Care',
+      category: 'Manicure & Pedicure',
+      description:
+        'Detailed e-file cuticle refinement, strengthening builder base overlay, warm rosemary oil soak, and sheer neutral or custom lacquer finish.',
+      price: 85,
+      duration: 60,
+      image: '/images/service_manicure_pedicure_1795006418859.jpg',
+      status: 'active',
+      createdAt: '2026-10-06T09:00:00.000Z',
+    },
+    {
+      id: 'svc-7',
+      serviceName: 'Warm Basalt Stone Restorative Massage',
+      category: 'Spa & Massage',
+      description:
+        'Slow-paced full-body therapeutic massage blending heated volcanic basalt stones with aromatic eucalyptus and sweet almond oil.',
+      price: 165,
+      duration: 90,
+      image: '/images/service_spa_massage_1795006417265.jpg',
+      status: 'active',
+      createdAt: '2026-10-07T09:00:00.000Z',
+    },
+    {
+      id: 'svc-8',
+      serviceName: 'Restorative Spa Pedicure & Mineral Soak',
+      category: 'Manicure & Pedicure',
+      description:
+        'Warm sea-salt and chamomile foot bath, gentle pumice resurfacing, reflexology calf massage, and long-wear mineral polish.',
+      price: 95,
+      duration: 60,
+      image: '/images/service_manicure_pedicure_1795006418859.jpg',
+      status: 'active',
+      createdAt: '2026-10-08T09:00:00.000Z',
+    },
+    {
+      id: 'svc-9',
+      serviceName: 'Winter Solstice Aromatherapy Wrap',
+      category: 'Spa & Massage',
+      description:
+        'Seasonal full-body mineral clay and warm cedarwood aromatherapy wrap designed for deep hydration and calm muscle relief.',
+      price: 190,
+      duration: 90,
+      image: '/images/service_spa_massage_1795006417265.jpg',
+      status: 'inactive',
+      createdAt: '2026-10-09T09:00:00.000Z',
+    },
+  ];
+
+  return { users, services, appointments: [], transactions: [], checkoutSessions: [] };
+}
