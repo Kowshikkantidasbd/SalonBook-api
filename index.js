@@ -150,3 +150,137 @@ function toHttpsOrigin(hostOrUrl) {
   }
   return `https://${trimmed}`;
 }
+export function getAllowedCorsOrigins() {
+  const raw = [
+    process.env.FRONTEND_URL,
+    process.env.APP_URL,
+    process.env.CORS_ORIGINS,
+    toHttpsOrigin(process.env.VERCEL_URL),
+    toHttpsOrigin(process.env.VERCEL_PROJECT_PRODUCTION_URL),
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'http://localhost:5000',
+  ]
+    .filter(Boolean)
+    .join(',');
+
+  return Array.from(
+    new Set(
+      raw
+        .split(',')
+        .map((item) => item.trim().replace(/\/$/, ''))
+        .filter((item) => item && item !== 'MY_APP_URL')
+    )
+  );
+}
+
+export function isOriginAllowed(origin) {
+  if (!origin) return true;
+  const normalized = origin.replace(/\/$/, '');
+  const allowList = getAllowedCorsOrigins();
+  if (allowList.includes(normalized)) return true;
+
+  try {
+    const parsed = new URL(normalized);
+    if (
+      parsed.hostname === 'localhost' ||
+      parsed.hostname === '127.0.0.1' ||
+      parsed.hostname.endsWith('.vercel.app') ||
+      parsed.hostname.endsWith('.onrender.com') ||
+      parsed.hostname.endsWith('.run.app')
+    ) {
+      return true;
+    }
+  } catch {
+    return false;
+  }
+
+  return false;
+}
+
+export function getFrontendBaseUrl(reqOrigin) {
+  const envUrl = process.env.FRONTEND_URL?.trim() || process.env.APP_URL?.trim();
+  const normalizedEnv = envUrl && envUrl !== 'MY_APP_URL' ? envUrl.replace(/\/$/, '') : '';
+  const normalizedOrigin = reqOrigin ? reqOrigin.replace(/\/$/, '') : '';
+
+  const envIsLocal =
+    !normalizedEnv ||
+    normalizedEnv.includes('localhost') ||
+    normalizedEnv.includes('127.0.0.1');
+  const originIsLive =
+    Boolean(normalizedOrigin) &&
+    !normalizedOrigin.includes('localhost') &&
+    !normalizedOrigin.includes('127.0.0.1');
+
+  if (originIsLive && envIsLocal) {
+    return normalizedOrigin;
+  }
+  if (normalizedEnv) {
+    return normalizedEnv;
+  }
+  if (normalizedOrigin) {
+    return normalizedOrigin;
+  }
+  return 'http://localhost:3000';
+}
+
+export function resolveRequestOrigin(req) {
+  const headerOrigin = typeof req?.headers?.origin === 'string' ? req.headers.origin.trim() : '';
+  if (headerOrigin && isOriginAllowed(headerOrigin)) {
+    return headerOrigin.replace(/\/$/, '');
+  }
+  const forwardedHost = String(req?.headers?.['x-forwarded-host'] || req?.headers?.host || '')
+    .split(',')[0]
+    .trim();
+  const forwardedProto = String(req?.headers?.['x-forwarded-proto'] || (req?.secure ? 'https' : 'http'))
+    .split(',')[0]
+    .trim();
+  if (
+    forwardedHost &&
+    !forwardedHost.startsWith('127.0.0.1:5000') &&
+    !forwardedHost.startsWith('localhost:5000')
+  ) {
+    const computed = `${forwardedProto}://${forwardedHost}`.replace(/\/$/, '');
+    if (isOriginAllowed(computed)) {
+      return computed;
+    }
+  }
+  return getFrontendBaseUrl(headerOrigin);
+}
+
+export function getBackendPublicBaseUrl() {
+  const configured = process.env.BACKEND_PUBLIC_URL?.trim();
+  return configured ? configured.replace(/\/$/, '') : '';
+}
+
+export function isHttpsRuntime() {
+  return (
+    getFrontendBaseUrl().startsWith('https://') ||
+    process.env.NODE_ENV === 'production'
+  );
+}
+
+export function isRequestHttps(req) {
+  if (!req) return isHttpsRuntime();
+  const forwardedProto = String(req.headers?.['x-forwarded-proto'] || '')
+    .split(',')[0]
+    .trim()
+    .toLowerCase();
+  if (forwardedProto === 'https') return true;
+  if (forwardedProto === 'http') return false;
+
+  const origin = String(req.headers?.origin || req.headers?.referer || '').trim().toLowerCase();
+  if (origin.startsWith('https://')) return true;
+  if (origin.startsWith('http://')) return false;
+
+  if (req.secure) return true;
+  const host = String(req.headers?.['x-forwarded-host'] || req.headers?.host || '').toLowerCase();
+  if (host.startsWith('localhost') || host.startsWith('127.0.0.1')) return false;
+  return isHttpsRuntime();
+}
+
+export function shouldSeedDemoData() {
+  if (process.env.SEED_DEMO_DATA === 'true') return true;
+  if (process.env.SEED_DEMO_DATA === 'false') return false;
+  return process.env.NODE_ENV !== 'production';
+}
