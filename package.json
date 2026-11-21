@@ -1,0 +1,29 @@
+{
+  "name": "salonbook-backend",
+  "version": "1.0.0",
+  "description": "Portable single-file Node.js + Express + MongoDB/Mongoose + JWT + Stripe + ImgBB REST API backend for SalonBook",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "engines": {
+    "node": ">=18.18.0"
+  },
+  "scripts": {
+    "dev": "node --watch index.js",
+    "build": "node --check index.js",
+    "start": "node index.js",
+    "lint": "node --check index.js",
+    "test": "node --input-type=module -e \"import assert from 'node:assert/strict';import {validatePassword,validateServiceInput,validateAppointmentDate,createSeedData,filterAndSortServices,hasBookingConflict} from './index.js';assert.equal(validatePassword('Ab1').valid,false);assert.equal(validatePassword('Secret1').valid,true);assert.equal(validateAppointmentDate('2020-01-01','2026-11-18').valid,false);assert.equal(validateAppointmentDate('2026-02-31','2026-11-18').valid,false);assert.equal(validateAppointmentDate('2026-11-20','2026-11-18').valid,true);assert.equal(createSeedData({includeDemo:false}).services.length,0);assert.equal(validateServiceInput({serviceName:'Balayage',category:'Hair Coloring',description:'Hand-painted dimensional color ritual.',price:210,duration:120,image:'/img.jpg'}).valid,true);assert.equal(filterAndSortServices([{id:'1',serviceName:'A',status:'active',price:50,createdAt:'2026-10-01'},{id:'2',serviceName:'B',status:'inactive',price:20,createdAt:'2026-10-02'}]).length,1);assert.equal(hasBookingConflict([{id:'a',serviceId:'s1',customerId:'c1',appointmentDate:'2026-11-20',timeSlot:'09:00 AM',status:'confirmed'}],{serviceId:'s1',customerId:'c2',appointmentDate:'2026-11-20',timeSlot:'09:00 AM'}).conflict,true);console.log('Backend unit checks passed');\""
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "better-auth": "^1.7.26",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^8.15.1",
+    "multer": "^2.5.0",
+    "stripe": "^18.2.1"
+  }
+}
