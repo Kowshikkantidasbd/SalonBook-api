@@ -613,13 +613,14 @@ const CheckoutSessionModel =
 export function createSeedData(options = {}) {
   const demoAllowed =
     typeof options.includeDemo === 'boolean' ? options.includeDemo : shouldSeedDemoData();
-  const envAdminEmail = (process.env.ADMIN_EMAIL?.trim() || 'admin@salonbook.com').toLowerCase();
-  const envAdminPassword = (process.env.ADMIN_PASSWORD?.trim() || 'Admin@1234');
+  const envAdminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase() || '';
+  const envAdminPassword = process.env.ADMIN_PASSWORD?.trim() || '';
 
-  const users = [
-    {
+  const users = [];
+  if (envAdminEmail && envAdminPassword) {
+    users.push({
       id: 'usr-admin-1',
-      name: process.env.ADMIN_NAME?.trim() || 'Camille Laurent',
+      name: process.env.ADMIN_NAME?.trim() || 'Admin',
       email: envAdminEmail,
       passwordHash: bcrypt.hashSync(envAdminPassword, 10),
       image: '/images/stylist_camille_director_1795011102351.jpg',
@@ -628,8 +629,8 @@ export function createSeedData(options = {}) {
       isBlocked: false,
       authProvider: 'credentials',
       createdAt: '2026-09-01T09:00:00.000Z',
-    },
-  ];
+    });
+  }
 
   const envCustomerEmail = (
     process.env.CUSTOMER_EMAIL ||
@@ -1046,8 +1047,8 @@ class SalonRepository {
       }
     }
 
-    const envAdminEmail = (process.env.ADMIN_EMAIL?.trim() || 'admin@salonbook.com').toLowerCase();
-    const envAdminPassword = (process.env.ADMIN_PASSWORD?.trim() || 'Admin@1234');
+    const envAdminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase() || '';
+    const envAdminPassword = process.env.ADMIN_PASSWORD?.trim() || '';
     const envCustomerEmail = (
       process.env.CUSTOMER_EMAIL ||
       process.env.CUSTOME_EMAIL ||
@@ -1064,7 +1065,7 @@ class SalonRepository {
       if (!existingAdmin) {
         await UserModel.create({
           id: 'usr-admin-1',
-          name: process.env.ADMIN_NAME?.trim() || 'Camille Laurent',
+          name: process.env.ADMIN_NAME?.trim() || 'Admin',
           email: envAdminEmail,
           passwordHash: bcrypt.hashSync(envAdminPassword, 10),
           image: '/images/stylist_camille_director_1795011102351.jpg',
@@ -2456,15 +2457,11 @@ function registerAuthRoutes(router) {
       const user = await db.findUserByEmail(normalizedEmail);
       let verified = Boolean(user && (await bcrypt.compare(password, user.passwordHash)));
 
-      // Allow admin to authenticate with configured ADMIN_PASSWORD, Admin@1234, or legacy Admin123
-      const envAdminEmail = (process.env.ADMIN_EMAIL?.trim() || 'admin@salonbook.com').toLowerCase();
-      const envAdminPassword = (process.env.ADMIN_PASSWORD?.trim() || 'Admin@1234');
-      if (!verified && user && (user.role === 'admin' || normalizedEmail === envAdminEmail)) {
-        if (
-          password === envAdminPassword ||
-          password === 'Admin@1234' ||
-          password === 'Admin123'
-        ) {
+      // Allow admin to authenticate with ADMIN_PASSWORD configured in .env
+      const envAdminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase() || '';
+      const envAdminPassword = process.env.ADMIN_PASSWORD?.trim() || '';
+      if (!verified && user && envAdminPassword && (user.role === 'admin' || (envAdminEmail && normalizedEmail === envAdminEmail))) {
+        if (password === envAdminPassword) {
           verified = true;
           try {
             await db.updateUserPasswordHash(user.id, bcrypt.hashSync(password, 10));
@@ -2581,7 +2578,8 @@ function registerAuthRoutes(router) {
           image: resolvedImage || '/images/service_hair_coloring_1795006415664.jpg',
           phone: '',
           role:
-            resolvedEmail === (process.env.ADMIN_EMAIL?.trim().toLowerCase() || 'admin@salonbook.com')
+            (process.env.ADMIN_EMAIL?.trim().toLowerCase() &&
+              resolvedEmail === process.env.ADMIN_EMAIL?.trim().toLowerCase())
               ? 'admin'
               : 'customer',
           isBlocked: false,
