@@ -1046,8 +1046,8 @@ class SalonRepository {
       }
     }
 
-    const envAdminEmail = (process.env.ADMIN_EMAIL || 'admin@salonbook.com').trim().toLowerCase();
-    const envAdminPassword = (process.env.ADMIN_PASSWORD || 'Admin@1234').trim();
+    const envAdminEmail = (process.env.ADMIN_EMAIL ).trim().toLowerCase();
+    const envAdminPassword = (process.env.ADMIN_PASSWORD).trim();
     const envCustomerEmail = (
       process.env.CUSTOMER_EMAIL ||
       process.env.CUSTOME_EMAIL ||
@@ -2537,7 +2537,7 @@ function registerAuthRoutes(router) {
           image: resolvedImage || '/images/service_hair_coloring_1795006415664.jpg',
           phone: '',
           role:
-            resolvedEmail === (process.env.ADMIN_EMAIL?.trim().toLowerCase() || 'admin@salonbook.com')
+            resolvedEmail === (process.env.ADMIN_EMAIL?.trim().toLowerCase())
               ? 'admin'
               : 'customer',
           isBlocked: false,
