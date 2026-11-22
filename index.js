@@ -498,9 +498,7 @@ function buildServiceFallback(apt, serviceMap) {
   };
 }
 
-// ============================================================================
-// 3. Mongoose Schemas & Models
-// ============================================================================
+
 
 const UserSchema = new Schema(
   {
@@ -776,9 +774,7 @@ export function createSeedData(options = {}) {
   return { users, services, appointments: [], transactions: [], checkoutSessions: [] };
 }
 
-// ============================================================================
-// 5. MongoDB (Mongoose) & In-Memory Fallback Repository
-// ============================================================================
+
 
 class SalonRepository {
   constructor() {
@@ -1117,7 +1113,7 @@ class SalonRepository {
     return rest;
   }
 
-  // --- USERS ---
+
   async findUserByEmail(email) {
     if (typeof email !== 'string') return null;
     const normalized = email.trim().toLowerCase();
@@ -1229,7 +1225,7 @@ class SalonRepository {
     return this.getMemoryStore().users;
   }
 
-  // --- SERVICES ---
+
   async _getRawServices(includeInactive = false) {
     const cacheKey = includeInactive ? 'services:all' : 'services:active';
     const cached = this.getCached(cacheKey);
@@ -1560,12 +1556,12 @@ class SalonRepository {
     const mem = this.useMongo ? null : this.getMemoryStore();
     const existingPaid = this.useMongo
       ? await TransactionModel.findOne({
-          stripeSessionId: params.stripeSessionId,
-          status: 'paid',
-        }).lean()
+        stripeSessionId: params.stripeSessionId,
+        status: 'paid',
+      }).lean()
       : mem.transactions.find(
-          (t) => t.stripeSessionId === params.stripeSessionId && t.status === 'paid'
-        );
+        (t) => t.stripeSessionId === params.stripeSessionId && t.status === 'paid'
+      );
 
     if (existingPaid) {
       if (params.status === 'paid' && appointment.paymentStatus !== 'paid') {
@@ -1650,6 +1646,18 @@ class SalonRepository {
     const mem = this.getMemoryStore();
     const existing = (mem.checkoutSessions || []).find((s) => s.sessionId === sessionId);
     if (existing) existing.status = status;
+  }
+
+  async findLatestSessionForAppointment(appointmentId) {
+    if (typeof appointmentId !== 'string' || !appointmentId) return null;
+    if (this.useMongo) {
+      const doc = await CheckoutSessionModel.findOne({ appointmentId })
+        .sort({ createdAt: -1 })
+        .lean();
+      return this.stripMongoId(doc);
+    }
+    const mem = this.getMemoryStore();
+    return (mem.checkoutSessions || []).find((s) => s.appointmentId === appointmentId) || null;
   }
 }
 
@@ -2120,20 +2128,25 @@ export async function syncStripeCheckoutSession({
         (stripeSession?.status === 'complete' && stripeSession?.payment_status !== 'unpaid');
 
       if (isStripePaid && appointmentId) {
-        // Payment status in database is ONLY updated by the verified Stripe webhook.
-        const [existingTxnAfterWebhook, updatedApt] = await Promise.all([
+        // Authoritatively verified directly with Stripe API
+        await repository.applyVerifiedPayment({
+          appointmentId,
+          customerId: resolvedCustomerId || '',
+          amount: Number(
+            stripeSession.amount_total
+              ? stripeSession.amount_total / 100
+              : storedSession?.amount || linkedApt?.servicePrice || 0
+          ),
+          currency: stripeSession.currency || 'usd',
+          stripeSessionId: sessionId,
+          status: 'paid',
+        });
+
+        const [existingTxn, updatedApt] = await Promise.all([
           repository.findTransactionBySessionId(sessionId),
           repository.findAppointmentById(appointmentId),
         ]);
-        if (existingTxnAfterWebhook && existingTxnAfterWebhook.status === 'paid') {
-          return { completed: true, transaction: existingTxnAfterWebhook, appointment: updatedApt };
-        }
-        return {
-          completed: false,
-          session: storedSession || null,
-          status: 'processing',
-          message: 'Payment received by Stripe. Awaiting verified webhook processing.',
-        };
+        return { completed: true, transaction: existingTxn, appointment: updatedApt };
       }
 
       if (stripeSession?.status === 'expired') {
@@ -2159,8 +2172,8 @@ export async function reconcilePendingStripeAppointments(
   }
 
   const candidates = appointments
-    .filter((apt) => apt && apt.paymentStatus !== 'paid' && apt.stripeSessionId)
-    .slice(0, 5);
+    .filter((apt) => apt && apt.paymentStatus !== 'paid' && (apt.stripeSessionId || apt.status === 'confirmed'))
+    .slice(0, 10);
 
   if (candidates.length === 0) {
     return { appointments, updatedCount: 0 };
@@ -2169,8 +2182,14 @@ export async function reconcilePendingStripeAppointments(
   const syncedMap = new Map();
   await Promise.allSettled(
     candidates.map(async (apt) => {
+      let sessionId = apt.stripeSessionId;
+      if (!sessionId && typeof repository.findLatestSessionForAppointment === 'function') {
+        const sessionDoc = await repository.findLatestSessionForAppointment(apt.id);
+        sessionId = sessionDoc?.sessionId;
+      }
+      if (!sessionId) return;
       const result = await syncStripeCheckoutSession({
-        sessionId: apt.stripeSessionId,
+        sessionId,
         stripe,
         repository,
         expectedCustomerId: allowAdmin ? null : expectedCustomerId || apt.customerId,
@@ -2334,7 +2353,7 @@ const dynamicMongoDb = new Proxy({}, {
           return mongoose.connection.db.collection(name);
         }
         return {
-          createIndex: async () => {},
+          createIndex: async () => { },
           findOne: async () => null,
           find: () => ({ toArray: async () => [] }),
           insertOne: async () => ({ insertedId: '1' }),
@@ -2380,13 +2399,13 @@ export const auth = betterAuth({
   },
   ...(isGoogleSocialAuthEnabled()
     ? {
-        socialProviders: {
-          google: {
-            clientId: getGoogleClientId(),
-            clientSecret: getGoogleClientSecret(),
-          },
+      socialProviders: {
+        google: {
+          clientId: getGoogleClientId(),
+          clientSecret: getGoogleClientSecret(),
         },
-      }
+      },
+    }
     : {}),
 });
 
