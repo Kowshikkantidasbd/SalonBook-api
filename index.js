@@ -302,7 +302,7 @@ export function isRequestHttps(req) {
 export function shouldSeedDemoData() {
   if (process.env.SEED_DEMO_DATA === 'true') return true;
   if (process.env.SEED_DEMO_DATA === 'false') return false;
-  return process.env.NODE_ENV !== 'production';
+  return process.env.NODE_ENV !== 'production' && !isServerless;
 }
 
 
@@ -589,7 +589,7 @@ const CheckoutSessionSchema = new Schema(
     serviceName: { type: String, required: true },
     amount: { type: Number, required: true },
     currency: { type: String, default: 'usd' },
-    mode: { type: String, enum: ['stripe', 'test_simulator'], default: 'test_simulator' },
+    mode: { type: String, enum: ['stripe'], default: 'stripe' },
     status: {
       type: String,
       enum: ['pending', 'completed', 'failed', 'expired'],
@@ -896,7 +896,7 @@ class SalonRepository {
         } catch (err) {
           this.lastMongoError = sanitizeMongoError(err);
           this.useMongo = false;
-          if (process.env.NODE_ENV === 'production') {
+          if (process.env.NODE_ENV === 'production' || isServerless) {
             throw new Error(`MongoDB connection failed in production: ${this.lastMongoError}`);
           }
           console.warn(
@@ -905,7 +905,7 @@ class SalonRepository {
           );
         }
       } else {
-        if (process.env.NODE_ENV === 'production') {
+        if (process.env.NODE_ENV === 'production' || isServerless) {
           throw new Error('MONGODB_URI environment variable is required in production.');
         }
       }
@@ -2059,7 +2059,7 @@ export async function syncStripeCheckoutSession({
     throw err;
   }
 
-  if (stripe && storedSession?.mode !== 'test_simulator') {
+  if (stripe) {
     try {
       const stripeSession = await stripe.checkout.sessions.retrieve(sessionId);
       const fallbackApt =
