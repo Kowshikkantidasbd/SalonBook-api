@@ -1315,6 +1315,32 @@ class SalonRepository {
     return deleted;
   }
 
+  async deleteAppointmentsByService(serviceId) {
+    if (typeof serviceId !== 'string' || !serviceId) return 0;
+    if (this.useMongo) {
+      const apts = await AppointmentModel.find({ serviceId }).select('id stripeSessionId').lean();
+      const aptIds = apts.map((a) => a.id);
+      const sessionIds = apts.map((a) => a.stripeSessionId).filter(Boolean);
+      await Promise.all([
+        AppointmentModel.deleteMany({ serviceId }),
+        TransactionModel.deleteMany({ appointmentId: { $in: aptIds } }),
+        CheckoutSessionModel.deleteMany({
+          $or: [{ appointmentId: { $in: aptIds } }, { sessionId: { $in: sessionIds } }],
+        }),
+      ]);
+      this.invalidateCache('appointments:', 'stats:', 'transactions:');
+      return aptIds.length;
+    }
+    const mem = this.getMemoryStore();
+    const apts = mem.appointments.filter((a) => a.serviceId === serviceId);
+    const aptIds = new Set(apts.map((a) => a.id));
+    mem.appointments = mem.appointments.filter((a) => a.serviceId !== serviceId);
+    mem.transactions = mem.transactions.filter((t) => !aptIds.has(t.appointmentId));
+    mem.checkoutSessions = (mem.checkoutSessions || []).filter((s) => !aptIds.has(s.appointmentId));
+    this.invalidateCache('appointments:', 'stats:', 'transactions:');
+    return aptIds.size;
+  }
+
   // --- APPOINTMENTS ---
   async listAppointments() {
     if (this.useMongo) {
@@ -3120,14 +3146,7 @@ function registerServiceRoutes(router) {
     requireRole('admin'),
     asyncHandler(async (req, res) => {
       const id = String(req.params.id);
-      const existingAppointments = await db.countAppointmentsByService(id);
-      if (existingAppointments > 0) {
-        res.status(409).json({
-          error:
-            'This service has existing appointment records and cannot be deleted. Set its status to "inactive" instead to hide it from new bookings.',
-        });
-        return;
-      }
+      await db.deleteAppointmentsByService(id);
       const deleted = await db.deleteService(id);
       if (!deleted) {
         res.status(404).json({ error: 'Service not found.' });
