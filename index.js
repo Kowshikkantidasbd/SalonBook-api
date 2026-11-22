@@ -115,9 +115,7 @@ export function resolveMongoDbName(mongoUri, explicitDbName = process.env.MONGOD
   const dbPath = authorityAndPath.slice(firstSlash + 1).replace(/^\/+|\/+$/g, '').trim();
   if (!dbPath) return 'salonbook';
 
-  
-
-  return undefined;
+  return dbPath;
 }
 
 export function sanitizeMongoError(err) {
@@ -610,15 +608,13 @@ const TransactionModel =
 const CheckoutSessionModel =
   mongoose.models.CheckoutSession || mongoose.model('CheckoutSession', CheckoutSessionSchema);
 
-// ============================================================================
-// 4. Initial Seed Data
-// ============================================================================
+
 
 export function createSeedData(options = {}) {
   const demoAllowed =
     typeof options.includeDemo === 'boolean' ? options.includeDemo : shouldSeedDemoData();
-  const envAdminEmail = (process.env.ADMIN_EMAIL || 'admin@salonbook.com').trim().toLowerCase();
-  const envAdminPassword = (process.env.ADMIN_PASSWORD || 'Admin@1234').trim();
+  const envAdminEmail = (process.env.ADMIN_EMAIL).trim().toLowerCase();
+  const envAdminPassword = (process.env.ADMIN_PASSWORD).trim();
 
   const users = [
     {
