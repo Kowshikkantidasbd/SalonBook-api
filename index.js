@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -2127,48 +2126,6 @@ export async function syncStripeCheckoutSession({
   return { completed: false, session: storedSession || null };
 }
 
-export async function reconcilePendingStripeAppointments(
-  appointments,
-  { stripe = getStripeClient(), repository = db, expectedCustomerId = null, allowAdmin = false } = {}
-) {
-  if (!stripe || !Array.isArray(appointments) || appointments.length === 0) {
-    return { appointments, updatedCount: 0 };
-  }
-
-  const candidates = appointments
-    .filter((apt) => apt && apt.paymentStatus !== 'paid' && apt.stripeSessionId)
-    .slice(0, 5);
-
-  if (candidates.length === 0) {
-    return { appointments, updatedCount: 0 };
-  }
-
-  const syncedMap = new Map();
-  await Promise.allSettled(
-    candidates.map(async (apt) => {
-      const result = await syncStripeCheckoutSession({
-        sessionId: apt.stripeSessionId,
-        stripe,
-        repository,
-        expectedCustomerId: allowAdmin ? null : expectedCustomerId || apt.customerId,
-        allowAdmin,
-      });
-      if (result?.completed && result.appointment) {
-        syncedMap.set(apt.id, result.appointment);
-      }
-    })
-  );
-
-  if (syncedMap.size === 0) {
-    return { appointments, updatedCount: 0 };
-  }
-
-  return {
-    appointments: appointments.map((apt) => syncedMap.get(apt.id) || apt),
-    updatedCount: syncedMap.size,
-  };
-}
-
 // ============================================================================
 // 8. REST API Routes (/api/*)
 // ============================================================================
@@ -2324,7 +2281,8 @@ const dynamicMongoDb = new Proxy({}, {
   },
 });
 
-export const auth = betterAuth({
+function createAuth() {
+  return betterAuth({
   database: mongodbAdapter(dynamicMongoDb),
   secret: getJwtSecret(),
   baseURL:
@@ -2365,7 +2323,22 @@ export const auth = betterAuth({
         },
       }
     : {}),
-});
+  });
+}
+
+let authInstance = null;
+export function getAuth() {
+  if (!authInstance) authInstance = createAuth();
+  return authInstance;
+}
+export const auth = new Proxy(
+  {},
+  {
+    get(_target, prop) {
+      return getAuth()[prop];
+    },
+  }
+);
 
 // --- 8A. Auth & Profile Routes ---
 function registerAuthRoutes(router) {
@@ -2881,7 +2854,13 @@ function registerAuthRoutes(router) {
     })
   );
   // Mount Better Auth handler for /api/auth/* endpoints (sign-in, sign-up, session, ok, etc.)
-  router.all('/auth/*', toNodeHandler(auth));
+  router.all('/auth/*', (req, res, next) => {
+    try {
+      return toNodeHandler(getAuth())(req, res);
+    } catch (err) {
+      next(err);
+    }
+  });
 }
 
 // --- 8B. Image Upload Route (ImgBB) ---
@@ -3205,9 +3184,7 @@ function registerAppointmentRoutes(router) {
         db.listAppointmentsByCustomer(req.user.id),
         db.listServices({ includeInactive: true }),
       ]);
-      const { appointments: reconciled } = await reconcilePendingStripeAppointments(mine, {
-        expectedCustomerId: req.user.id,
-      });
+      const reconciled = mine;
       const serviceMap = new Map(allServices.map((s) => [s.id, s]));
       res.json({
         appointments: reconciled.map((apt) => ({
@@ -3436,10 +3413,7 @@ function registerPaymentRoutes(router) {
         db.listAppointmentsByCustomer(req.user.id),
         db.listServices({ includeInactive: true }),
       ]);
-      const { appointments: reconciled } = await reconcilePendingStripeAppointments(
-        mineAppointments,
-        { expectedCustomerId: req.user.id }
-      );
+      const reconciled = mineAppointments;
       const txns = await db.listTransactionsByCustomer(req.user.id);
       const aptMap = new Map(reconciled.map((a) => [a.id, a]));
       const svcMap = new Map(allServices.map((s) => [s.id, s]));
@@ -3485,10 +3459,7 @@ function registerAdminRoutes(router) {
         db.listServices({ includeInactive: true }),
         db.listUsers(),
       ]);
-      const { appointments: reconciled } = await reconcilePendingStripeAppointments(
-        allAppointments,
-        { allowAdmin: true }
-      );
+      const reconciled = allAppointments;
       const serviceMap = new Map(allServices.map((s) => [s.id, s]));
       const userMap = new Map(allUsers.map((u) => [u.id, sanitizeUser(u)]));
 
@@ -3603,11 +3574,8 @@ function registerAdminRoutes(router) {
         db.listServices({ includeInactive: true }),
       ]);
 
-      const { appointments, updatedCount } = await reconcilePendingStripeAppointments(
-        allAppointments,
-        { allowAdmin: true }
-      );
-      const txns = updatedCount > 0 ? await db.listTransactions() : initialTxns;
+      const appointments = allAppointments;
+      const txns = initialTxns;
 
       const userMap = new Map(users.map((u) => [u.id, sanitizeUser(u)]));
       const aptMap = new Map(appointments.map((a) => [a.id, a]));
@@ -3650,11 +3618,8 @@ function registerAdminRoutes(router) {
         db.listServices({ includeInactive: true }),
         db.listUsers(),
       ]);
-      const { appointments: reconciled, updatedCount } = await reconcilePendingStripeAppointments(
-        allAppointments,
-        { allowAdmin: true }
-      );
-      const stats = updatedCount > 0 ? await db.getAdminStats() : initialStats;
+      const reconciled = allAppointments;
+      const stats = initialStats;
       const serviceMap = new Map(allServices.map((s) => [s.id, s]));
       const userMap = new Map(allUsers.map((u) => [u.id, sanitizeUser(u)]));
 
@@ -3965,96 +3930,24 @@ export async function bootstrap(options = {}) {
 
 // Vercel Serverless Function entry point
 export default async function handler(req, res) {
-  await db.init();
+  try {
+    await db.init();
+  } catch (err) {
+    console.error('[SalonBook] Startup failed:', err);
+    const detail = err instanceof Error ? err.message : String(err);
+    res.statusCode = 503;
+    res.setHeader('Content-Type', 'application/json');
+    res.end(
+      JSON.stringify({
+        error: 'Server is not configured correctly.',
+        detail: sanitizeMongoError(detail),
+      })
+    );
+    return;
+  }
   return app(req, res);
 }
 
-function readCliFlagValue(argv, names) {
-  for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
-    for (const name of names) {
-      if (arg === name && argv[i + 1] && !argv[i + 1].startsWith('-')) {
-        return argv[i + 1];
-      }
-      if (arg.startsWith(`${name}=`)) {
-        return arg.slice(name.length + 1);
-      }
-    }
-  }
-  return '';
-}
-
-function isPidAlive(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function clearStaleNextDevLock(frontendDir) {
-  const lockPath = path.join(frontendDir, '.next', 'dev', 'lock');
-  if (!fs.existsSync(lockPath)) return;
-
-  try {
-    const raw = fs.readFileSync(lockPath, 'utf8').trim();
-    const parsed = raw ? JSON.parse(raw) : null;
-    const lockPid = Number(parsed?.pid);
-
-    if (Number.isInteger(lockPid) && lockPid > 0 && lockPid !== process.pid) {
-      if (isPidAlive(lockPid)) {
-        try {
-          process.kill(lockPid, 'SIGTERM');
-        } catch {
-          // ignore permission/race errors
-        }
-        for (let i = 0; i < 15; i += 1) {
-          if (!isPidAlive(lockPid)) break;
-          await new Promise((r) => setTimeout(r, 100));
-        }
-        if (isPidAlive(lockPid)) {
-          try {
-            process.kill(lockPid, 'SIGKILL');
-          } catch {
-            // ignore
-          }
-          await new Promise((r) => setTimeout(r, 100));
-        }
-      }
-    }
-  } catch {
-    // Malformed or empty lock file — safe to remove below
-  }
-
-  try {
-    if (fs.existsSync(lockPath)) {
-      fs.unlinkSync(lockPath);
-    }
-  } catch {
-    // ignore unlink errors if already removed
-  }
-}
-
-function terminateChildProcessTree(child, signal = 'SIGTERM') {
-  if (!child || child.killed || child.exitCode !== null) return;
-  try {
-    if (process.platform !== 'win32' && child.pid) {
-      process.kill(-child.pid, signal);
-    } else {
-      child.kill(signal);
-    }
-  } catch {
-    try {
-      child.kill(signal);
-    } catch {
-      // ignore
-    }
-  }
-}
-
-// Localhost / Node server auto-start
 const isMainModule =
   typeof process !== 'undefined' &&
   Array.isArray(process.argv) &&
@@ -4062,129 +3955,12 @@ const isMainModule =
   import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
 
 if (isMainModule && !process.env.VERCEL) {
-  const withFrontendDev = process.argv.includes('--dev');
-  const withFrontendStart = process.argv.includes('--start');
-
-  if (withFrontendDev || withFrontendStart) {
-    const backendPort = process.env.BACKEND_PORT || '5000';
-    const cliPort = readCliFlagValue(process.argv, ['--port', '-p']);
-    const cliHost = readCliFlagValue(process.argv, ['--host', '-H']);
-    const frontendPort = cliPort || process.env.FRONTEND_PORT || '3000';
-    const frontendHost = cliHost || process.env.FRONTEND_HOST || '0.0.0.0';
-    process.env.PORT = backendPort;
-
-    if (withFrontendStart) {
-      process.env.NODE_ENV = 'production';
-      process.env.SEED_DEMO_DATA = process.env.SEED_DEMO_DATA || 'true';
-    }
-
-    const frontendDir = path.resolve(BACKEND_DIR, '../frontend');
-    const nextCli = path.join(frontendDir, 'node_modules', 'next', 'dist', 'bin', 'next');
-    const nextCmd = withFrontendStart ? 'start' : 'dev';
-
-    let activeFrontendChild = null;
-    let isShuttingDown = false;
-    let startupAttempts = 0;
-
-    const launchFrontend = async () => {
-      if (isShuttingDown) return;
-      if (withFrontendDev) {
-        await clearStaleNextDevLock(frontendDir);
-      }
-      if (isShuttingDown) return;
-
-      startupAttempts += 1;
-      const startedAt = Date.now();
-      const child = spawn(
-        process.execPath,
-        [nextCli, nextCmd, '-p', frontendPort, '-H', frontendHost],
-        {
-          cwd: frontendDir,
-          stdio: 'inherit',
-          detached: process.platform !== 'win32',
-          env: {
-            ...process.env,
-            PORT: frontendPort,
-            NODE_ENV: withFrontendStart ? 'production' : 'development',
-            BACKEND_URL: process.env.BACKEND_URL || `http://127.0.0.1:${backendPort}`,
-            NEXT_PUBLIC_GOOGLE_CLIENT_ID:
-              getGoogleClientId() ||
-              process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ||
-              '801397027922-te0vr2mpme4oi60g1m6oh8hvmc0tt8q4.apps.googleusercontent.com',
-            NEXT_TELEMETRY_DISABLED: '1',
-          },
-        }
-      );
-      activeFrontendChild = child;
-
-      child.on('exit', (code) => {
-        if (isShuttingDown) return;
-        const ranMs = Date.now() - startedAt;
-        if (code && code !== 0 && ranMs < 10000 && startupAttempts < 3) {
-          console.warn(
-            `Next.js ${nextCmd} exited early (code ${code}), retrying startup (${startupAttempts}/3)...`
-          );
-          setTimeout(() => {
-            void launchFrontend();
-          }, 600);
-          return;
-        }
-        if (code && code !== 0) {
-          process.exit(code);
-        }
-      });
-    };
-
-    const stopFrontendGracefully = async () => {
-      isShuttingDown = true;
-      const child = activeFrontendChild;
-      if (!child || child.exitCode !== null) return;
-
-      await new Promise((resolve) => {
-        let settled = false;
-        const done = () => {
-          if (settled) return;
-          settled = true;
-          resolve();
-        };
-        child.once('exit', done);
-        terminateChildProcessTree(child, 'SIGTERM');
-        setTimeout(() => {
-          terminateChildProcessTree(child, 'SIGKILL');
-          done();
-        }, 1200).unref();
-      });
-    };
-
-    process.once('exit', () => {
-      isShuttingDown = true;
-      terminateChildProcessTree(activeFrontendChild, 'SIGTERM');
-    });
-
-    bootstrap({ onShutdown: stopFrontendGracefully })
-      .then(() => launchFrontend())
-      .catch((err) => {
-        if (err?.code === 'EADDRINUSE') {
-          const port = getPort();
-          console.error(
-            `Port ${port} is already in use. Close the existing process using port ${port} or set a different PORT in backend/.env.`
-          );
-          process.exit(1);
-        }
-        console.error('Failed to bootstrap SalonBook backend:', err);
-        process.exit(1);
-      });
-  } else {
-    bootstrap().catch((err) => {
-      if (err?.code === 'EADDRINUSE') {
-        const port = getPort();
-        console.error(
-          `Port ${port} is already in use. Close the existing process using port ${port} or set a different PORT in backend/.env.`
-        );
-        process.exit(1);
-      }
-      console.error('Failed to bootstrap SalonBook backend:', err);
+  bootstrap().catch((err) => {
+    if (err?.code === 'EADDRINUSE') {
+      console.error(`Port ${getPort()} is already in use. Set a different PORT in Backend/.env.`);
       process.exit(1);
-    });
-  }
+    }
+    console.error('Failed to start SalonBook backend:', err);
+    process.exit(1);
+  });
 }
